@@ -115,6 +115,7 @@ static char *revealedStateKey;
 @end
 
 #define SIDEBAR_VIEW_TAG 10000
+#define VIEW_OVERLAY_TAG 10001
 
 @implementation UIViewController (JTRevealSidebarV2Private)
 
@@ -130,6 +131,11 @@ static char *revealedStateKey;
         // Remove the sidebar view after the sidebar closes.
         UIView *view = [self.view.superview viewWithTag:(int)context];
         [view removeFromSuperview];
+        
+        UIView *overlayView = [self.view viewWithTag:VIEW_OVERLAY_TAG];
+        if (overlayView != nil) {
+            [overlayView removeFromSuperview];
+        }
     }
     
     // notify delegate for controller changed state
@@ -151,29 +157,52 @@ static char *revealedStateKey;
     UIView *revealedView = [delegate viewForLeftSidebar];
     revealedView.tag = SIDEBAR_VIEW_TAG;
     CGFloat width = CGRectGetWidth(revealedView.frame);
+    
+    // Maintain some frames that represent the "original" frame, i.e. the frame
+    // that the view will display to the user, and the translated, or hidden
+    // frame that the view will reveal from.
+    CGRect originalRevealFrame = CGRectMake(0, 0, width, CGRectGetHeight(revealedView.frame));
+    CGRect translatedRevealFrame = CGRectOffset(originalRevealFrame, -width, 0);
+    translatedRevealFrame.origin.x = -width;
+    
+    // A partially transparent view that gets overlaid over this navigation
+    // controller's view that when tapped, will dismiss the sidebar.
+    UIView *overlayView;
 
     if (showLeftSidebar) {
-        [self.view.superview insertSubview:revealedView belowSubview:self.view];
+        // Setup the overlay and add a simple tap gesture recognizer.
+        UITapGestureRecognizer *overlayTapRecognizer = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(viewOverlayTapped:)];
+        overlayView = [[UIView alloc] initWithFrame:self.view.frame];
+        overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
+        overlayView.tag = VIEW_OVERLAY_TAG;
+        [overlayView addGestureRecognizer:overlayTapRecognizer];
+        [self.view addSubview:overlayView];
+        
+        [self.view.superview addSubview:revealedView];
+        revealedView.frame = translatedRevealFrame;
         
         [UIView beginAnimations:@"" context:nil];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], width, 0);
-        
-        self.view.frame = CGRectOffset(self.view.frame, width, 0);
-
+        revealedView.frame = originalRevealFrame;
+        overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.5];
     } else {
-        [UIView beginAnimations:@"hideSidebarView" context:(void *)SIDEBAR_VIEW_TAG];
-//        self.view.transform = CGAffineTransformTranslate([self baseTransform], -width, 0);
+        overlayView = [self.view viewWithTag:VIEW_OVERLAY_TAG];
+        revealedView.frame = originalRevealFrame;
         
-        self.view.frame = CGRectOffset(self.view.frame, -width, 0);
+        [UIView beginAnimations:@"hideSidebarView" context:(void *)SIDEBAR_VIEW_TAG];
+        revealedView.frame = translatedRevealFrame;
+        if (overlayView != nil) {
+            overlayView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
+        }
     }
     
+    [UIView setAnimationDuration: 1];
     [UIView setAnimationDidStopSelector:@selector(animationDidStop2:finished:context:)];
     [UIView setAnimationDelegate:self];
-    
-    NSLog(@"%@", NSStringFromCGAffineTransform(self.view.transform));
-
-
     [UIView commitAnimations];
+}
+
+- (void)viewOverlayTapped:(UIGestureRecognizer *)recog {
+    [self toggleRevealState:JTRevealedStateNo];
 }
 
 - (void)revealRightSidebar:(BOOL)showRightSidebar {
